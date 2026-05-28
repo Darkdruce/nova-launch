@@ -122,6 +122,7 @@ pub struct StreamInfo {
     pub metadata: Option<String>,
     pub cancelled: bool,
     pub paused: bool,
+    pub disputed: bool,
 }
 
 #[contracttype]
@@ -898,7 +899,17 @@ impl Error {
     pub const BurnScheduleAlreadyExecuted: Self = Self(83);
     pub const BurnScheduleCancelled: Self = Self(84);
     pub const InvalidUnlockTime: Self = Self(85);
-    pub const DuplicateSigners: Self = Self(86);
+    // Batch rollback errors
+    /// A batch operation failed at the given element index; no state was changed.
+    pub const PartialBatchFailure: Self = Self(86);
+    // Stream dispute errors
+    pub const StreamDisputed: Self = Self(87);
+    pub const StreamNotDisputed: Self = Self(88);
+    pub const DisputeAlreadyRaised: Self = Self(89);
+    // Campaign recovery errors
+    pub const CampaignFinalizationFailed: Self = Self(90);
+    // Proposal cancellation errors
+    pub const ProposalNotCancellable: Self = Self(91);
 }
 
 impl From<Error> for soroban_sdk::Error {

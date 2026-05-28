@@ -676,6 +676,22 @@ pub fn emit_stream_cancelled(
     );
 }
 
+/// Emit stream dispute raised event
+pub fn emit_stream_dispute_raised(env: &Env, stream_id: u32, caller: &Address) {
+    env.events().publish(
+        (symbol_short!("strm_disp"), stream_id),
+        (caller,),
+    );
+}
+
+/// Emit stream dispute resolved event
+pub fn emit_stream_dispute_resolved(env: &Env, stream_id: u32, admin: &Address) {
+    env.events().publish(
+        (symbol_short!("strm_rslv"), stream_id),
+        (admin,),
+    );
+}
+
 /// Emit stream metadata updated event (v1)
 /// 
 /// **Schema Version**: 1
@@ -767,6 +783,14 @@ pub fn emit_proposal_executed(
     env.events().publish(
         (symbol_short!("prop_exec"), proposal_id),
         (executor, success),
+    );
+}
+
+/// Emit proposal cancelled event
+pub fn emit_proposal_cancelled(env: &Env, proposal_id: u64, cancelled_by: &Address) {
+    env.events().publish(
+        (symbol_short!("prop_cncl"), proposal_id),
+        (cancelled_by,),
     );
 }
 
@@ -933,6 +957,14 @@ pub fn emit_campaign_completed(env: &Env, campaign_id: u64, tokens_burned: i128,
     env.events().publish(
         (symbol_short!("cmp_cmp"), campaign_id),
         (tokens_burned, budget_spent),
+    );
+}
+
+/// Emit campaign finalized event (admin/owner-triggered finalization)
+pub fn emit_campaign_finalized(env: &Env, campaign_id: u64, caller: &Address) {
+    env.events().publish(
+        (symbol_short!("cmp_fin"), campaign_id),
+        (caller,),
     );
 }
 

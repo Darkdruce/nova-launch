@@ -17,6 +17,7 @@ mod referral;
 
 mod batch_operations;
 mod burn;
+mod campaign;
 #[cfg(feature = "legacy-tests")]
 mod burn_auction;
 mod differential_engine;
@@ -2894,6 +2895,17 @@ impl TokenFactory {
         Ok(())
     }
 
+    /// Raise a dispute on a stream, pausing settlement until resolved.
+    /// Caller must be the stream creator or recipient.
+    pub fn raise_dispute(env: Env, caller: Address, stream_id: u64) -> Result<(), Error> {
+        streaming::raise_dispute(&env, &caller, stream_id)
+    }
+
+    /// Resolve a dispute on a stream (admin only), re-enabling settlement.
+    pub fn resolve_dispute(env: Env, admin: Address, stream_id: u64) -> Result<(), Error> {
+        streaming::resolve_dispute(&env, &admin, stream_id)
+    }
+
     /// Get governance configuration
     ///
     /// Returns the current quorum and approval thresholds.
@@ -3159,6 +3171,16 @@ impl TokenFactory {
         storage::get_campaign(&env, campaign_id).ok_or(Error::CampaignNotFound)
     }
 
+    /// Finalize a campaign (Active or Paused → Completed). Safe to retry on failure.
+    pub fn finalize_campaign(env: Env, caller: Address, campaign_id: u64) -> Result<(), Error> {
+        campaign::finalize_campaign(&env, &caller, campaign_id)
+    }
+
+    /// Retry a failed finalization. Idempotent if already Completed.
+    pub fn retry_finalize_campaign(env: Env, caller: Address, campaign_id: u64) -> Result<(), Error> {
+        campaign::retry_finalize_campaign(&env, &caller, campaign_id)
+    }
+
     // ═══════════════════════════════════════════════════════════════════════
     // Governance Proposal Functions
     // ═══════════════════════════════════════════════════════════════════════
@@ -3206,6 +3228,11 @@ impl TokenFactory {
 
     pub fn get_proposal(env: Env, proposal_id: u64) -> Option<types::Proposal> {
         timelock::get_proposal(&env, proposal_id)
+    }
+
+    /// Cancel a proposal. Only the proposer or admin may cancel; terminal states are rejected.
+    pub fn cancel_proposal(env: Env, caller: Address, proposal_id: u64) -> Result<(), Error> {
+        timelock::cancel_proposal(&env, &caller, proposal_id)
     }
 
     pub fn get_vote_counts(env: Env, proposal_id: u64) -> Option<(i128, i128, i128)> {
