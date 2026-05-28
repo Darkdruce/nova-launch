@@ -1112,14 +1112,22 @@ pub fn finalize_proposal(env: &Env, proposal_id: u64) -> Result<(), Error> {
     let config = storage::get_governance_config(env);
     let total_votes = proposal.votes_for + proposal.votes_against + proposal.votes_abstain;
 
-    // Quorum check: total_votes must represent at least quorum_percent of eligible voters.
-    // We use a fixed eligible pool of 10 as a simplified model (matching the test harness).
-    // In a production deployment with token-weighted voting, total_eligible would be
-    // derived from the circulating supply at proposal creation time.
-    const TOTAL_ELIGIBLE: i128 = 10;
+    // Token-weighted quorum: eligible weight = sum of all token total supplies.
+    // Falls back to vote count if no tokens have been deployed yet.
+    let total_eligible: i128 = {
+        let token_count = storage::get_token_count(env);
+        let mut supply_sum: i128 = 0;
+        for i in 0..token_count {
+            if let Some(info) = storage::get_token_info(env, i) {
+                supply_sum = supply_sum.saturating_add(info.total_supply);
+            }
+        }
+        if supply_sum > 0 { supply_sum } else { total_votes.max(1) }
+    };
+
     let quorum_met = crate::governance::is_quorum_met(
         total_votes as u32,
-        TOTAL_ELIGIBLE as u32,
+        total_eligible.min(u32::MAX as i128) as u32,
         config.quorum_percent,
     );
 
