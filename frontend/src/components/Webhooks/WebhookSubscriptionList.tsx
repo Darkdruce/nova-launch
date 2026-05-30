@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { webhookApi, WebhookSubscription, WebhookEventType } from '../../services/webhookApi';
 import { useWallet } from '../../hooks/useWallet';
 import { Card } from '../UI/Card';
@@ -18,6 +18,7 @@ export function WebhookSubscriptionList() {
     const [isDeleting, setIsDeleting] = useState(false);
     const [selectedSubId, setSelectedSubId] = useState<string | null>(null);
     const [isTestingId, setIsTestingId] = useState<string | null>(null);
+    const [query, setQuery] = useState('');
 
     const fetchSubscriptions = useCallback(async () => {
         if (!wallet?.address) return;
@@ -36,6 +37,15 @@ export function WebhookSubscriptionList() {
     useEffect(() => {
         fetchSubscriptions();
     }, [fetchSubscriptions]);
+
+    const visibleSubscriptions = useMemo(() => {
+        const q = query.trim().toLowerCase();
+        if (!q) return subscriptions;
+        return subscriptions.filter(s =>
+            s.url.toLowerCase().includes(q) ||
+            s.events.some(e => e.toLowerCase().includes(q))
+        );
+    }, [subscriptions, query]);
 
     const handleToggle = async (id: string, currentActive: boolean) => {
         try {
@@ -87,9 +97,30 @@ export function WebhookSubscriptionList() {
         <div className="space-y-6">
             <div className="flex justify-between items-center">
                 <h2 className="text-2xl font-bold text-gray-900">Webhook Subscriptions</h2>
-                <Button variant="primary" onClick={fetchSubscriptions}>
-                    Refresh
-                </Button>
+                <div className="flex items-center gap-3">
+                    <div className="relative">
+                        <input
+                            aria-label="Search webhooks"
+                            type="text"
+                            value={query}
+                            onChange={(e) => setQuery(e.target.value)}
+                            placeholder="Search by endpoint URL or event..."
+                            className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        />
+                        {query && (
+                            <button
+                                type="button"
+                                onClick={() => setQuery('')}
+                                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                            >
+                                ✕
+                            </button>
+                        )}
+                    </div>
+                    <Button variant="primary" onClick={fetchSubscriptions}>
+                        Refresh
+                    </Button>
+                </div>
             </div>
 
             {loading && (
@@ -119,7 +150,12 @@ export function WebhookSubscriptionList() {
             )}
 
             <div className="grid gap-6">
-                {subscriptions.map((sub) => (
+                {visibleSubscriptions.length === 0 && query ? (
+                    <Card key="empty-search" className="p-8 text-center border-dashed border-2">
+                        <p className="text-gray-500">No subscriptions match your search</p>
+                    </Card>
+                ) : (
+                    visibleSubscriptions.map((sub) => (
                     <Card key={sub.id} className="overflow-hidden border-l-4 border-l-blue-500">
                         <div className="p-6">
                             <div className="flex flex-wrap justify-between items-start gap-4 mb-4">
