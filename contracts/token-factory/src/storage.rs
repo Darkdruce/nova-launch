@@ -1796,3 +1796,66 @@ pub fn is_trusted_caller(env: &Env, caller: &Address) -> bool {
         .get::<_, bool>(&crate::types::DataKey::TrustedCaller(caller.clone()))
         .unwrap_or(false)
 }
+
+// ============================================================
+// Metadata Content Hash Storage (#1131)
+// ============================================================
+
+/// Store a 32-byte content hash alongside the metadata URI for a token.
+///
+/// The hash allows off-chain consumers to verify that IPFS content has not
+/// been tampered with after registration.
+pub fn set_metadata_content_hash(
+    env: &Env,
+    token_index: u32,
+    hash: &soroban_sdk::BytesN<32>,
+) {
+    env.storage()
+        .persistent()
+        .set(&crate::types::DataKey::MetadataContentHash(token_index), hash);
+}
+
+/// Retrieve the stored content hash for a token's metadata.
+///
+/// Returns `None` if no hash has been registered (metadata not yet set or
+/// set before this feature was introduced).
+pub fn get_metadata_content_hash(
+    env: &Env,
+    token_index: u32,
+) -> Option<soroban_sdk::BytesN<32>> {
+    env.storage()
+        .persistent()
+        .get(&crate::types::DataKey::MetadataContentHash(token_index))
+}
+
+// ============================================================
+// Vault Owner Change Storage (#1134)
+// ============================================================
+
+/// Persist a pending vault-owner change proposal.
+pub fn set_pending_vault_owner_change(
+    env: &Env,
+    vault_id: u64,
+    change: &crate::types::PendingVaultOwnerChange,
+) {
+    env.storage()
+        .persistent()
+        .set(&crate::types::DataKey::PendingVaultOwnerChange(vault_id), change);
+}
+
+/// Retrieve a pending vault-owner change proposal.
+pub fn get_pending_vault_owner_change(
+    env: &Env,
+    vault_id: u64,
+) -> Option<crate::types::PendingVaultOwnerChange> {
+    env.storage()
+        .persistent()
+        .get(&crate::types::DataKey::PendingVaultOwnerChange(vault_id))
+}
+
+/// Remove a pending vault-owner change proposal (after execution or cancellation).
+pub fn remove_pending_vault_owner_change(env: &Env, vault_id: u64) {
+    env.storage()
+        .persistent()
+        .remove(&crate::types::DataKey::PendingVaultOwnerChange(vault_id));
+}

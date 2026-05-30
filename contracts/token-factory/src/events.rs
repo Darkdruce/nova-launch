@@ -1311,3 +1311,72 @@ pub fn emit_cross_contract_call(env: &Env, caller: &Address) {
     env.events()
         .publish((symbol_short!("cc_auth"),), (caller.clone(),));
 }
+
+// ── Issue #1131: Metadata content hash events ─────────────────────────────
+
+/// Emitted when a metadata content hash is stored alongside the URI.
+pub fn emit_metadata_hash_set(
+    env: &Env,
+    token_index: u32,
+    admin: &soroban_sdk::Address,
+    content_hash: &soroban_sdk::BytesN<32>,
+) {
+    env.events().publish(
+        (soroban_sdk::symbol_short!("meta_hash"), token_index),
+        (admin.clone(), content_hash.clone()),
+    );
+}
+
+// ── Issue #1133: Milestone verification events ────────────────────────────
+
+/// Emitted when a milestone is verified by an authorized verifier.
+pub fn emit_milestone_verified(
+    env: &Env,
+    vault_id: u64,
+    verifier: &soroban_sdk::Address,
+) {
+    env.events().publish(
+        (soroban_sdk::symbol_short!("ms_vrfd"), vault_id),
+        (verifier.clone(),),
+    );
+}
+
+// ── Issue #1134: Vault owner change events ────────────────────────────────
+
+/// Emitted when a vault-owner change is proposed.
+pub fn emit_vault_owner_change_proposed(
+    env: &Env,
+    vault_id: u64,
+    proposer: &soroban_sdk::Address,
+    new_owner: &soroban_sdk::Address,
+) {
+    env.events().publish(
+        (soroban_sdk::symbol_short!("vlt_chg"), vault_id),
+        (proposer.clone(), new_owner.clone()),
+    );
+}
+
+/// Emitted when a vault-owner change is approved by one party.
+pub fn emit_vault_owner_change_approved(
+    env: &Env,
+    vault_id: u64,
+    approver: &soroban_sdk::Address,
+) {
+    env.events().publish(
+        (soroban_sdk::symbol_short!("vlt_apr"), vault_id),
+        (approver.clone(),),
+    );
+}
+
+/// Emitted when a vault-owner change is executed (both parties approved).
+pub fn emit_vault_owner_changed(
+    env: &Env,
+    vault_id: u64,
+    old_owner: &soroban_sdk::Address,
+    new_owner: &soroban_sdk::Address,
+) {
+    env.events().publish(
+        (soroban_sdk::symbol_short!("vlt_own"), vault_id),
+        (old_owner.clone(), new_owner.clone()),
+    );
+}

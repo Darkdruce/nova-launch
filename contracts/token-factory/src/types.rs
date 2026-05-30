@@ -415,6 +415,32 @@ pub struct Vault {
     pub milestone_hash: BytesN<32>,
     pub status: VaultStatus,
     pub created_at: u64,
+    /// Authorized address that must approve milestone completion before funds
+    /// are released. `None` means no milestone gating (time-only unlock).
+    /// When set, `claim_vault` requires this address to have called
+    /// `verify_milestone` for the vault before the claim is accepted.
+    pub verifier: Option<Address>,
+    /// Set to `true` once the authorized verifier has approved the milestone.
+    pub milestone_verified: bool,
+}
+
+/// Pending multi-party vault-owner change request.
+///
+/// Both the current owner and the contract creator must approve before
+/// the vault's `owner` field is updated.
+///
+/// # Fields
+/// * `vault_id`   - The vault being modified
+/// * `new_owner`  - Proposed new owner address
+/// * `owner_approved`   - Whether the current vault owner has approved
+/// * `creator_approved` - Whether the vault creator has approved
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PendingVaultOwnerChange {
+    pub vault_id: u64,
+    pub new_owner: Address,
+    pub owner_approved: bool,
+    pub creator_approved: bool,
 }
 
 /// Staking Pool configuration and state
@@ -648,6 +674,12 @@ pub enum DataKey {
     BurnSchedulesByToken(u32, u32),
     /// Number of burn schedules for a token
     BurnScheduleCountByToken(u32),
+    /// Reentrancy guard flag — set while a burn is in progress
+    ReentrancyLock,
+    /// Content hash for token metadata (token_index → BytesN<32>)
+    MetadataContentHash(u32),
+    /// Pending vault-owner change: vault_id → (new_owner, approvals_bitmap)
+    PendingVaultOwnerChange(u64),
 }
 
 /// A point-in-time record of a token holder's balance.
@@ -931,6 +963,18 @@ impl Error {
     pub const CampaignFinalizationFailed: Self = Self(90);
     // Proposal cancellation errors
     pub const ProposalNotCancellable: Self = Self(91);
+    // Burn reentrancy guard (#1132)
+    pub const BurnReentrancyDetected: Self = Self(92);
+    // Metadata content hash errors (#1131)
+    pub const InvalidMetadataHash: Self = Self(93);
+    pub const MetadataHashMismatch: Self = Self(94);
+    // Milestone signature errors (#1133)
+    pub const MilestoneUnauthorized: Self = Self(95);
+    pub const MilestoneAlreadyVerified: Self = Self(96);
+    // Vault beneficiary multi-party auth errors (#1134)
+    pub const VaultOwnerChangePending: Self = Self(97);
+    pub const VaultOwnerChangeNotFound: Self = Self(98);
+    pub const VaultOwnerChangeAlreadyApproved: Self = Self(99);
 }
 
 impl From<Error> for soroban_sdk::Error {

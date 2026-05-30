@@ -1386,47 +1386,56 @@ impl TokenFactory {
     }
 
     /// Set metadata for a token
-    /// 
-    /// Allows the token creator to set metadata URI once
+    /// Allows the token creator to set metadata URI once, with an optional
+    /// 32-byte content hash for off-chain IPFS verification (#1131).
+    ///
+    /// # Parameters
+    /// - `content_hash`: SHA-256 (or equivalent) hash of the IPFS content.
+    ///   Must be exactly 32 bytes. Pass `None` to omit hash verification.
+    ///   A non-zero hash is stored on-chain so consumers can verify retrieved
+    ///   IPFS content matches what was registered.
     pub fn set_token_metadata(
         env: Env,
         admin: Address,
         token_index: u32,
         metadata_uri: String,
+        content_hash: Option<BytesN<32>>,
     ) -> Result<(), Error> {
-        // Require admin authorization
         admin.require_auth();
 
-        // Get token info
         let mut token_info =
             storage::get_token_info(&env, token_index).ok_or(Error::TokenNotFound)?;
 
-        // Verify caller is the token creator or holds MetadataManager role
         if token_info.creator != admin
             && !storage::has_role(&env, token_index, &admin, types::Role::MetadataManager)
         {
             return Err(Error::Unauthorized);
         }
 
-        // Reject if the token is individually paused
         if storage::is_token_paused(&env, token_index) {
             return Err(Error::TokenPaused);
         }
 
-        // Enforce immutability: metadata can only be set once
         if token_info.metadata_uri.is_some() {
             return Err(Error::MetadataAlreadySet);
         }
 
-        // Set metadata URI and initialize version to 1
+        // Validate content hash: if provided, must be non-zero (all-zero hash
+        // is reserved as "no hash" sentinel and would be misleading).
+        if let Some(ref hash) = content_hash {
+            let zero = BytesN::from_array(&env, &[0u8; 32]);
+            if *hash == zero {
+                return Err(Error::InvalidMetadataHash);
+            }
+            storage::set_metadata_content_hash(&env, token_index, hash);
+            events::emit_metadata_hash_set(&env, token_index, &admin, hash);
+        }
+
         token_info.metadata_uri = Some(metadata_uri.clone());
         token_info.metadata_version = 1;
         storage::set_token_info(&env, token_index, &token_info);
-
-        // Also update by address lookup
         storage::set_token_info_by_address(&env, &token_info.address, &token_info);
 
-        // Record initial history entry
         let record = types::MetadataRecord {
             uri: metadata_uri.clone(),
             updated_at: env.ledger().timestamp(),
@@ -1434,10 +1443,19 @@ impl TokenFactory {
         };
         storage::push_metadata_history(&env, token_index, &record)?;
 
-        // Emit metadata set event
         events::emit_metadata_set(&env, &token_info.address, &admin, &metadata_uri);
-
         Ok(())
+    }
+
+    /// Retrieve the stored content hash for a token's metadata.
+    ///
+    /// Returns `None` if no hash was registered when metadata was set.
+    /// Off-chain consumers can use this to verify IPFS content integrity.
+    pub fn get_metadata_content_hash(
+        env: Env,
+        token_index: u32,
+    ) -> Option<BytesN<32>> {
+        storage::get_metadata_content_hash(&env, token_index)
     }
 
     /// Update metadata URI for a token with version tracking
@@ -2590,6 +2608,7 @@ impl TokenFactory {
         amount: i128,
         unlock_time: u64,
         milestone_hash: BytesN<32>,
+        verifier: Option<Address>,
     ) -> Result<u64, Error> {
         creator.require_auth();
 
@@ -2609,6 +2628,11 @@ impl TokenFactory {
             return Err(Error::InvalidParameters);
         }
 
+        // A verifier is required when a milestone hash is set (#1133)
+        if has_milestone_unlock && verifier.is_none() {
+            return Err(Error::InvalidParameters);
+        }
+
         if storage::get_token_info_by_address(&env, &token).is_none() {
             return Err(Error::TokenNotFound);
         }
@@ -2625,6 +2649,8 @@ impl TokenFactory {
             milestone_hash: milestone_hash.clone(),
             status: VaultStatus::Active,
             created_at: env.ledger().timestamp(),
+            verifier,
+            milestone_verified: false,
         };
 
         storage::set_vault(&env, &vault)?;
@@ -2698,53 +2724,31 @@ impl TokenFactory {
         vault_id: u64,
         proof: Option<Bytes>,
     ) -> Result<i128, Error> {
-        // Load vault
         let mut vault = storage::get_vault(env, vault_id).ok_or(Error::TokenNotFound)?;
 
-        // Verify owner
         if vault.owner != *owner {
             return Err(Error::Unauthorized);
         }
 
-        // Check vault status
         if vault.status != VaultStatus::Active {
-            return match vault.status {
-                VaultStatus::Claimed => Err(Error::InvalidParameters),
-                VaultStatus::Cancelled => Err(Error::InvalidParameters),
-                _ => Err(Error::InvalidParameters),
-            };
+            return Err(Error::InvalidParameters);
         }
 
-        // Milestone verification (if required)
+        // Milestone verification (#1133): if a milestone hash is set, the
+        // authorized verifier must have already called `verify_milestone`.
         let zero_hash = BytesN::from_array(&env, &[0u8; 32]);
         if vault.milestone_hash != zero_hash {
-            // Non-zero milestone_hash requires proof
-            let proof_bytes = proof.ok_or(Error::InvalidParameters)?;
-
-            // TODO: Inject verifier instance (currently using stub)
-            // In production, replace with oracle-based verifier that:
-            // - Validates cryptographic signatures from trusted oracles
-            // - Checks proof timestamps to prevent replay attacks
-            // - Verifies milestone_hash matches proof payload
-            // - Handles oracle service unavailability gracefully
-            use crate::milestone_verification::MilestoneVerifier as _;
-            let verifier = milestone_verification::MilestoneVerifierStub::new(&env);
-
-            let is_valid =
-                verifier.verify_milestone(&env, &vault.milestone_hash, &proof_bytes)?;
-
-            if !is_valid {
-                return Err(Error::InvalidParameters);
+            if !vault.milestone_verified {
+                return Err(Error::MilestoneUnauthorized);
             }
         }
 
-        // Time-based unlock check (independent of milestone verification)
+        // Time-based unlock check
         let current_time = env.ledger().timestamp();
         if vault.unlock_time > 0 && current_time < vault.unlock_time {
             return Err(Error::InvalidParameters);
         }
 
-        // Calculate claimable amount
         let claimable = vault
             .total_amount
             .checked_sub(vault.claimed_amount)
@@ -2753,16 +2757,15 @@ impl TokenFactory {
             return Err(Error::NothingToClaim);
         }
 
-        // Transfer tokens
-        let token_client = soroban_sdk::token::Client::new(&env, &vault.token);
-        token_client.transfer(&env.current_contract_address(), &*owner, &claimable);
-
-        // Update vault
+        // State update before external call (CEI pattern)
         vault.claimed_amount = vault.total_amount;
         vault.status = VaultStatus::Claimed;
         storage::set_vault(&env, &vault)?;
 
-        // Emit event
+        // External call after state is committed
+        let token_client = soroban_sdk::token::Client::new(&env, &vault.token);
+        token_client.transfer(&env.current_contract_address(), &*owner, &claimable);
+
         events::emit_vault_claimed(&env, vault_id, owner, claimable);
 
         Ok(claimable)
@@ -2808,6 +2811,166 @@ impl TokenFactory {
 
         Ok(())
     }
+
+    /// Mark a vault's milestone as verified (#1133).
+    ///
+    /// Only the address stored as `vault.verifier` may call this function.
+    /// Once verified, `claim_vault` will allow the owner to withdraw funds
+    /// (subject to any time-based unlock condition).
+    ///
+    /// # Errors
+    /// - `TokenNotFound` – vault does not exist
+    /// - `Unauthorized`  – caller is not the vault's verifier
+    /// - `InvalidParameters` – vault has no verifier / milestone already verified
+    pub fn verify_milestone(env: Env, verifier: Address, vault_id: u64) -> Result<(), Error> {
+        verifier.require_auth();
+
+        if storage::is_paused(&env) {
+            return Err(Error::ContractPaused);
+        }
+
+        let mut vault = storage::get_vault(&env, vault_id).ok_or(Error::TokenNotFound)?;
+
+        if vault.status != VaultStatus::Active {
+            return Err(Error::InvalidParameters);
+        }
+
+        // Only the designated verifier may approve
+        match &vault.verifier {
+            Some(v) if *v == verifier => {}
+            _ => return Err(Error::MilestoneUnauthorized),
+        }
+
+        if vault.milestone_verified {
+            return Err(Error::MilestoneAlreadyVerified);
+        }
+
+        vault.milestone_verified = true;
+        storage::set_vault(&env, &vault)?;
+
+        events::emit_milestone_verified(&env, vault_id, &verifier);
+        Ok(())
+    }
+
+    /// Propose a vault-owner change (#1134).
+    ///
+    /// Either the current owner or the vault creator may initiate the proposal.
+    /// The change only executes once **both** parties have approved via
+    /// `approve_vault_owner_change`.
+    ///
+    /// # Errors
+    /// - `TokenNotFound`          – vault does not exist
+    /// - `Unauthorized`           – caller is neither owner nor creator
+    /// - `VaultOwnerChangePending` – a proposal is already pending for this vault
+    pub fn propose_vault_owner_change(
+        env: Env,
+        proposer: Address,
+        vault_id: u64,
+        new_owner: Address,
+    ) -> Result<(), Error> {
+        proposer.require_auth();
+
+        if storage::is_paused(&env) {
+            return Err(Error::ContractPaused);
+        }
+
+        let vault = storage::get_vault(&env, vault_id).ok_or(Error::TokenNotFound)?;
+
+        if vault.status != VaultStatus::Active {
+            return Err(Error::InvalidParameters);
+        }
+
+        if proposer != vault.owner && proposer != vault.creator {
+            return Err(Error::Unauthorized);
+        }
+
+        if storage::get_pending_vault_owner_change(&env, vault_id).is_some() {
+            return Err(Error::VaultOwnerChangePending);
+        }
+
+        let owner_approved = proposer == vault.owner;
+        let creator_approved = proposer == vault.creator;
+
+        let change = types::PendingVaultOwnerChange {
+            vault_id,
+            new_owner: new_owner.clone(),
+            owner_approved,
+            creator_approved,
+        };
+        storage::set_pending_vault_owner_change(&env, vault_id, &change);
+
+        events::emit_vault_owner_change_proposed(&env, vault_id, &proposer, &new_owner);
+        Ok(())
+    }
+
+    /// Approve a pending vault-owner change (#1134).
+    ///
+    /// The party that did **not** propose must call this to complete the change.
+    /// When both owner and creator have approved, the vault's owner is updated
+    /// atomically and the pending proposal is removed.
+    ///
+    /// # Errors
+    /// - `TokenNotFound`                  – vault does not exist
+    /// - `VaultOwnerChangeNotFound`       – no pending proposal for this vault
+    /// - `Unauthorized`                   – caller is neither owner nor creator
+    /// - `VaultOwnerChangeAlreadyApproved` – caller already approved
+    pub fn approve_vault_owner_change(
+        env: Env,
+        approver: Address,
+        vault_id: u64,
+    ) -> Result<(), Error> {
+        approver.require_auth();
+
+        if storage::is_paused(&env) {
+            return Err(Error::ContractPaused);
+        }
+
+        let mut vault = storage::get_vault(&env, vault_id).ok_or(Error::TokenNotFound)?;
+
+        if vault.status != VaultStatus::Active {
+            return Err(Error::InvalidParameters);
+        }
+
+        let mut change = storage::get_pending_vault_owner_change(&env, vault_id)
+            .ok_or(Error::VaultOwnerChangeNotFound)?;
+
+        let is_owner = approver == vault.owner;
+        let is_creator = approver == vault.creator;
+
+        if !is_owner && !is_creator {
+            return Err(Error::Unauthorized);
+        }
+
+        if is_owner && change.owner_approved {
+            return Err(Error::VaultOwnerChangeAlreadyApproved);
+        }
+        if is_creator && change.creator_approved {
+            return Err(Error::VaultOwnerChangeAlreadyApproved);
+        }
+
+        if is_owner {
+            change.owner_approved = true;
+        }
+        if is_creator {
+            change.creator_approved = true;
+        }
+
+        events::emit_vault_owner_change_approved(&env, vault_id, &approver);
+
+        if change.owner_approved && change.creator_approved {
+            // Both parties approved — execute the change
+            let old_owner = vault.owner.clone();
+            vault.owner = change.new_owner.clone();
+            storage::set_vault(&env, &vault)?;
+            storage::remove_pending_vault_owner_change(&env, vault_id);
+            events::emit_vault_owner_changed(&env, vault_id, &old_owner, &change.new_owner);
+        } else {
+            storage::set_pending_vault_owner_change(&env, vault_id, &change);
+        }
+
+        Ok(())
+    }
+
     /// Update stream metadata (creator/admin only)
     ///
     /// Allows the stream creator or admin to update the metadata associated with
