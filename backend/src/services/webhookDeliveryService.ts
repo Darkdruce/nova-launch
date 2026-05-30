@@ -1,4 +1,6 @@
 import axios, { AxiosError } from "axios";
+import { gzip } from "zlib";
+import { promisify } from "util";
 import {
   WebhookSubscription,
   WebhookPayload,
@@ -11,12 +13,16 @@ import { IntegrationMetrics } from "../monitoring/metrics/prometheus-config";
 import { webhookDeliveryLatency } from "../lib/metrics";
 import { CircuitBreaker } from "../lib/circuitBreaker";
 
+const gzipAsync = promisify(gzip);
+
 const TIMEOUT_MS = parseInt(process.env.WEBHOOK_TIMEOUT_MS || "5000");
 const MAX_RETRIES = parseInt(process.env.WEBHOOK_MAX_RETRIES || "3");
 const RETRY_DELAY_MS = parseInt(process.env.WEBHOOK_RETRY_DELAY_MS || "1000");
 
 export class WebhookDeliveryService {
   private circuitBreaker: CircuitBreaker;
+  // Read at construction time so tests can override via process.env before new WebhookDeliveryService()
+  private readonly compressionThresholdBytes: number;
 
   constructor() {
     this.circuitBreaker = new CircuitBreaker({
@@ -24,6 +30,10 @@ export class WebhookDeliveryService {
       successThreshold: parseInt(process.env.WEBHOOK_CIRCUIT_BREAKER_SUCCESS_THRESHOLD || "2"),
       timeoutMs: parseInt(process.env.WEBHOOK_CIRCUIT_BREAKER_TIMEOUT_MS || "60000"),
     });
+    // Payloads larger than this threshold (bytes) are gzip-compressed on delivery.
+    this.compressionThresholdBytes = parseInt(
+      process.env.WEBHOOK_COMPRESSION_THRESHOLD_BYTES || "1024"
+    );
   }
   /**
    * Trigger webhooks for an event
@@ -84,17 +94,33 @@ export class WebhookDeliveryService {
       let attempts = 0;
       const startMs = Date.now();
 
+      const rawBody = JSON.stringify(payload);
+      const useCompression = Buffer.byteLength(rawBody, "utf8") >= this.compressionThresholdBytes;
+      let compressedBody: Buffer | null = null;
+      if (useCompression) {
+        compressedBody = await gzipAsync(rawBody) as Buffer;
+      }
+
+      // Track whether to fall back to uncompressed (e.g. after a 415 response)
+      let compressionDisabled = false;
+
       for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
         attempts = attempt;
         try {
           console.log(
-            JSON.stringify({ event: 'webhook.attempt', correlationId: cid, url: subscription.url, attempt, maxRetries: MAX_RETRIES, ...(txHash && { txHash }) })
+            JSON.stringify({ event: 'webhook.attempt', correlationId: cid, url: subscription.url, attempt, maxRetries: MAX_RETRIES, compressed: useCompression && !compressionDisabled, ...(txHash && { txHash }) })
           );
 
-          const response = await axios.post(subscription.url, payload, {
+          const sendCompressed = useCompression && !compressionDisabled && compressedBody !== null;
+          const requestBody = sendCompressed ? compressedBody : rawBody;
+          const contentHeaders: Record<string, string> = sendCompressed
+            ? { "Content-Type": "application/json", "Content-Encoding": "gzip" }
+            : { "Content-Type": "application/json" };
+
+          const response = await axios.post(subscription.url, requestBody, {
             timeout: TIMEOUT_MS,
             headers: {
-              "Content-Type": "application/json",
+              ...contentHeaders,
               "X-Webhook-Signature": payload.signature,
               "X-Webhook-Event": event,
               "User-Agent": "Nova-Launch-Webhook/1.0",
@@ -124,7 +150,14 @@ export class WebhookDeliveryService {
             JSON.stringify({ event: 'webhook.failed', correlationId: cid, url: subscription.url, attempt, statusCode, error: lastError, ...(txHash && { txHash }) })
           );
 
-          // 4xx errors are non-retryable — stop immediately
+          // 415 Unsupported Media Type — consumer cannot accept encoded content;
+          // disable compression and retry with the uncompressed body.
+          if (statusCode === 415 && useCompression && !compressionDisabled) {
+            compressionDisabled = true;
+            continue;
+          }
+
+          // Other 4xx errors are non-retryable — stop immediately
           if (statusCode !== null && statusCode >= 400 && statusCode < 500) {
             break;
           }

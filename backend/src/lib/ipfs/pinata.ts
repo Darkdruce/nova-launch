@@ -1,6 +1,7 @@
 import pinataSDK from "@pinata/sdk";
 import NodeCache from "node-cache";
 import { CircuitBreaker } from "../circuitBreaker.js";
+import { verifyCIDContent, verifyMetadataCID } from "./cidVerification.js";
 
 const cache = new NodeCache({ stdTTL: 3600 }); // 1 hour cache
 
@@ -9,6 +10,11 @@ const ipfsCircuitBreaker = new CircuitBreaker({
   successThreshold: 2,
   timeoutMs: 30000, // 30 seconds before retry
 });
+
+// Set IPFS_VERIFY_CID=true to enable content-address integrity checks after upload.
+const CID_VERIFY_ENABLED = process.env.IPFS_VERIFY_CID === "true";
+const CID_VERIFY_GATEWAY =
+  process.env.IPFS_VERIFY_GATEWAY_URL ?? "https://gateway.pinata.cloud/ipfs";
 
 export async function uploadImageToIPFS(
   buffer: Buffer,
@@ -24,7 +30,13 @@ export async function uploadImageToIPFS(
       pinataMetadata: { name: filename },
     });
 
-    return result.IpfsHash;
+    const cid = result.IpfsHash;
+
+    if (CID_VERIFY_ENABLED) {
+      await verifyCIDContent(buffer, cid, CID_VERIFY_GATEWAY);
+    }
+
+    return cid;
   });
 }
 
@@ -37,6 +49,10 @@ export async function uploadMetadataToIPFS(metadata: any): Promise<string> {
 
     const result = await pinata.pinJSONToIPFS(metadata);
     const cid = result.IpfsHash;
+
+    if (CID_VERIFY_ENABLED) {
+      await verifyMetadataCID(metadata, cid, CID_VERIFY_GATEWAY);
+    }
 
     // Cache the metadata
     cache.set(cid, metadata);
