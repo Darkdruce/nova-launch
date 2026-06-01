@@ -80,7 +80,7 @@ describe('CampaignDashboard Integration Tests', () => {
 
     render(<CampaignDashboard campaignId={1} />);
 
-    expect(screen.getByRole('status', { hidden: true })).toBeInTheDocument();
+    expect(screen.getByLabelText('Loading campaign')).toBeInTheDocument();
   });
 
   it('should handle fetch errors', async () => {

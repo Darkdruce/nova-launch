@@ -6,6 +6,7 @@ import type { BuybackCampaignModel } from '../../types/campaign';
 import { useProjectionRefresh } from '../../hooks/useProjectionRefresh';
 import { campaignApi } from '../../services/campaignApi';
 import { getTxUrl } from '../../utils/explorer';
+import { Skeleton } from '../UI/Skeleton';
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL ?? '';
 
@@ -68,12 +69,37 @@ export const CampaignDashboard: React.FC<CampaignDashboardProps> = ({
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center p-8">
-        <div
-          role="status"
-          aria-label="Loading"
-          className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600"
-        />
+      <div className="max-w-4xl mx-auto p-6 space-y-6" aria-label="Loading campaign">
+        <div className="bg-white rounded-lg shadow-lg p-6">
+          {/* Header row */}
+          <div className="flex items-center justify-between mb-6">
+            <Skeleton className="h-8" width="40%" />
+            <Skeleton variant="rectangular" width={80} height={32} />
+          </div>
+          {/* Meta grid */}
+          <div className="grid grid-cols-2 gap-4 mb-6">
+            {[...Array(4)].map((_, i) => (
+              <div key={i}>
+                <Skeleton className="mb-1 h-3" width="50%" />
+                <Skeleton width="70%" />
+              </div>
+            ))}
+          </div>
+          {/* Progress bar area */}
+          <div className="mb-6">
+            <div className="flex justify-between mb-2">
+              <Skeleton width={60} />
+              <Skeleton width={30} />
+            </div>
+            <Skeleton variant="rectangular" height={12} />
+          </div>
+          {/* Steps list */}
+          <div className="space-y-3">
+            {[...Array(3)].map((_, i) => (
+              <Skeleton key={i} variant="rectangular" height={64} />
+            ))}
+          </div>
+        </div>
       </div>
     );
   }
