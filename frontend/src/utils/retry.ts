@@ -86,6 +86,10 @@ export function isRetryableError(error: any): boolean {
     if (msg.includes('network')) return true;
     if (msg.includes('not found') && msg.includes('transaction')) return true;
     if (msg.includes('failed to fetch')) return true;
+    // Sequence mismatch errors (TX_BAD_SEQ)
+    if (msg.includes('bad_seq')) return true;
+    if (msg.includes('tx_bad_seq')) return true;
+    if (msg.includes('sequence') && msg.includes('mismatch')) return true;
   }
 
   return false;

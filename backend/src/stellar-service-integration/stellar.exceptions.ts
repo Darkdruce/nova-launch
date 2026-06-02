@@ -111,3 +111,17 @@ export class StellarParseException extends StellarException {
     );
   }
 }
+
+export class StellarSequenceMismatchException extends StellarException {
+  constructor(accountId: string, details?: unknown) {
+    super(
+      StellarErrorCode.TRANSACTION_FAILED,
+      `Sequence number mismatch for account: ${accountId}`,
+      details,
+      HttpStatus.BAD_REQUEST
+    );
+  }
+}
+    );
+  }
+}

@@ -23,6 +23,7 @@ import { WalletService } from './wallet';
 import type { ProposalParams, VoteParams } from '../types/governance';
 import type { OnChainBuybackCampaign } from '../types/campaign';
 import { decodeSimulationError } from './stellarErrors';
+import { SequenceNumberCache } from './sequenceNumberCache';
 
 export interface TransactionDetails {
   hash: string;
@@ -63,6 +64,7 @@ export class StellarService {
   private horizonUrl: string;
   private networkPassphrase: string;
   private contractClient: Contract | null = null;
+  private sequenceCache: SequenceNumberCache;
 
   constructor(network: 'testnet' | 'mainnet' = 'testnet') {
     this.network = network;
@@ -71,6 +73,9 @@ export class StellarService {
     this.server = new Soroban.Server(config.sorobanRpcUrl);
     this.horizonUrl = config.horizonUrl;
     this.networkPassphrase = config.networkPassphrase;
+    
+    // Initialize sequence number cache (5 min TTL)
+    this.sequenceCache = new SequenceNumberCache(300000);
     
     this.initializeContractClient();
   }

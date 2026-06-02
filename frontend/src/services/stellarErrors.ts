@@ -362,6 +362,16 @@ export const CONTRACT_ERROR_MAP: Record<string, ContractErrorMapping> = {
         retrySuggestion: 'Wait for the protocol to resume operations',
         severity: 'critical',
     },
+    
+    // Transaction Sequence Errors
+    'TX_BAD_SEQ': {
+        code: ErrorCode.TRANSACTION_FAILED,
+        message: 'Transaction sequence number mismatch',
+        details: 'Sequence number out of sync',
+        retryable: true,
+        retrySuggestion: 'Transaction will be automatically retried with updated sequence',
+        severity: 'medium',
+    },
 };
 
 export class StellarError extends Error implements AppError {
@@ -622,6 +632,21 @@ export function parseStellarError(error: unknown, transactionResponse?: any): St
             details: 'You cancelled the transaction in your wallet',
             retryable: true,
             retrySuggestion: 'Try again and approve the transaction in your wallet',
+        }, transactionFailure);
+    }
+
+    // Sequence mismatch (TX_BAD_SEQ)
+    if (error instanceof Error && (
+        error.message.toLowerCase().includes('bad_seq') ||
+        error.message.toLowerCase().includes('tx_bad_seq') ||
+        (error.message.toLowerCase().includes('sequence') && error.message.toLowerCase().includes('mismatch'))
+    )) {
+        return new StellarError({
+            code: ErrorCode.TRANSACTION_FAILED,
+            message: 'Transaction sequence mismatch',
+            details: 'Sequence number out of sync - will be automatically retried',
+            retryable: true,
+            retrySuggestion: 'Transaction is being retried with updated sequence',
         }, transactionFailure);
     }
 

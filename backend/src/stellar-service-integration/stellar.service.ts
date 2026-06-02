@@ -32,6 +32,7 @@ import {
   assertValidAddress,
   isValidAddress,
 } from "./stellar.utils";
+import { SequenceNumberCache } from "./sequence-number-cache";
 
 @Injectable()
 export class StellarService implements OnModuleInit {
@@ -41,6 +42,7 @@ export class StellarService implements OnModuleInit {
   private soroban: StellarSdk.rpc.Server;
   private readonly rateLimiter: RateLimiter;
   private readonly circuitBreaker: CircuitBreaker;
+  private readonly sequenceCache: SequenceNumberCache;
 
   constructor(private readonly configService: ConfigService) {
     this.config = {
@@ -100,6 +102,9 @@ export class StellarService implements OnModuleInit {
     );
 
     this.circuitBreaker = new CircuitBreaker(this.config.circuitBreaker);
+    
+    // Initialize sequence number cache (5 min TTL)
+    this.sequenceCache = new SequenceNumberCache(300000);
   }
 
   onModuleInit(): void {
@@ -120,6 +125,58 @@ export class StellarService implements OnModuleInit {
   // ---------------------------------------------------------------------------
   // Public API
   // ---------------------------------------------------------------------------
+
+  /**
+   * Get account with sequence number management.
+   * Uses cached sequence if available, fetches from network otherwise.
+   * 
+   * @param accountId - Account public key
+   * @returns Account object with current sequence number
+   */
+  async getAccountWithSequence(accountId: string): Promise<StellarSdk.Horizon.AccountResponse> {
+    assertValidAddress(accountId);
+    
+    return this.sequenceCache.executeWithSequenceManagement(
+      accountId,
+      async () => {
+        this.rateLimiter.checkLimit();
+        return await this.horizon.loadAccount(accountId);
+      },
+      async (account) => account
+    );
+  }
+
+  /**
+   * Execute a transaction with automatic sequence number management.
+   * Handles locking, caching, incrementing, and refresh on mismatch.
+   * 
+   * @param accountId - Source account public key
+   * @param buildTransaction - Function that builds and signs the transaction
+   * @returns Transaction submission result
+   */
+  async executeTransaction<T = any>(
+    accountId: string,
+    buildTransaction: (account: StellarSdk.Horizon.AccountResponse) => Promise<StellarSdk.Transaction>
+  ): Promise<{ hash: string; result: T }> {
+    assertValidAddress(accountId);
+
+    return this.sequenceCache.executeWithSequenceManagement(
+      accountId,
+      async () => {
+        this.rateLimiter.checkLimit();
+        return await this.horizon.loadAccount(accountId);
+      },
+      async (account) => {
+        const transaction = await buildTransaction(account);
+        const response = await this.horizon.submitTransaction(transaction);
+        
+        return {
+          hash: response.hash,
+          result: response as any,
+        };
+      }
+    );
+  }
 
   /**
    * Validates a Stellar address (account or contract).
