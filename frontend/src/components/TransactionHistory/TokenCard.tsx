@@ -237,7 +237,7 @@ export function TokenCard({ token, network, fetchEnrichedData = true, onDetailLo
                     </div>
                 </div>
 
-                <div className="flex gap-2">
+                <div className="flex gap-2 flex-wrap">
                     <Button
                         variant="outline"
                         size="sm"
@@ -256,6 +256,13 @@ export function TokenCard({ token, network, fetchEnrichedData = true, onDetailLo
                             View TX
                         </Button>
                     )}
+                    <a
+                        href={`/tokens/${token.address}/analytics`}
+                        className="flex-1 inline-flex items-center justify-center px-3 py-1.5 text-sm font-medium rounded-lg border border-indigo-300 text-indigo-700 hover:bg-indigo-50 transition-colors"
+                        aria-label={`View analytics for ${token.name}`}
+                    >
+                        Analytics
+                    </a>
                 </div>
             </div>
         </Card>

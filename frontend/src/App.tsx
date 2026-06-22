@@ -14,6 +14,7 @@ const LandingPage = lazy(() => import("./pages/LandingPage"));
 const NotFoundRoute = lazy(() => import("./routes/NotFoundRoute"));
 const RecurringPayments = lazy(() => import("./app/dashboard/RecurringPayments"));
 const CampaignDashboard = lazy(() => import("./app/dashboard/CampaignDashboard"));
+const TokenAnalyticsPage = lazy(() => import("./pages/TokenAnalyticsPage"));
 
 // Loading fallback
 function PageLoader() {
@@ -108,6 +109,22 @@ function App({ compatibilityInfo }: { compatibilityInfo?: CompatibilityInfo }) {
           currentPath={pathname}
         >
           <RecurringPayments />
+        </DashboardLayout>
+      );
+    }
+
+    // /tokens/:address/analytics
+    const analyticsMatch = pathname.match(/^\/tokens\/([^/]+)\/analytics$/);
+    if (analyticsMatch) {
+      return (
+        <DashboardLayout
+          wallet={wallet}
+          onConnect={connect}
+          onDisconnect={disconnect}
+          isConnecting={isConnecting}
+          currentPath={pathname}
+        >
+          <TokenAnalyticsPage address={analyticsMatch[1]} />
         </DashboardLayout>
       );
     }
