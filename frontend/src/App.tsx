@@ -14,7 +14,7 @@ const LandingPage = lazy(() => import("./pages/LandingPage"));
 const NotFoundRoute = lazy(() => import("./routes/NotFoundRoute"));
 const RecurringPayments = lazy(() => import("./app/dashboard/RecurringPayments"));
 const CampaignDashboard = lazy(() => import("./app/dashboard/CampaignDashboard"));
-const TokenAnalyticsPage = lazy(() => import("./pages/TokenAnalyticsPage"));
+const GovernancePage = lazy(() => import("./pages/GovernancePage"));
 
 // Loading fallback
 function PageLoader() {
@@ -113,9 +113,7 @@ function App({ compatibilityInfo }: { compatibilityInfo?: CompatibilityInfo }) {
       );
     }
 
-    // /tokens/:address/analytics
-    const analyticsMatch = pathname.match(/^\/tokens\/([^/]+)\/analytics$/);
-    if (analyticsMatch) {
+    if (pathname === "/governance") {
       return (
         <DashboardLayout
           wallet={wallet}
@@ -124,7 +122,7 @@ function App({ compatibilityInfo }: { compatibilityInfo?: CompatibilityInfo }) {
           isConnecting={isConnecting}
           currentPath={pathname}
         >
-          <TokenAnalyticsPage address={analyticsMatch[1]} />
+          <GovernancePage wallet={wallet} />
         </DashboardLayout>
       );
     }
