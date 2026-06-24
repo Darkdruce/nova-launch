@@ -51,6 +51,7 @@ pub fn create_stream(env: &Env, creator: &Address, params: &StreamParams) -> Res
         cancelled: false,
         paused: false,
         disputed: false,
+        milestones: soroban_sdk::Vec::new(env),
     };
 
     // Store stream
@@ -522,22 +523,86 @@ fn calculate_claimable(env: &Env, stream: &StreamInfo) -> Result<i128, Error> {
         }
     };
 
-    // Claimable = vested - already claimed
-    let claimable = vested
+    // Add unlock_amount for each verified milestone
+    let mut milestone_unlocked: i128 = 0;
+    for i in 0..stream.milestones.len() {
+        let m = stream.milestones.get(i).unwrap();
+        if m.verified {
+            milestone_unlocked = milestone_unlocked
+                .checked_add(m.unlock_amount)
+                .ok_or(Error::ArithmeticError)?;
+        }
+    }
+
+    // Total claimable = (time-vested + milestone-unlocked) - already claimed
+    let total_unlocked = vested
+        .checked_add(milestone_unlocked)
+        .ok_or(Error::ArithmeticError)?
+        .min(stream.total_amount); // never exceed total
+
+    let claimable = total_unlocked
         .checked_sub(stream.claimed_amount)
         .ok_or(Error::ArithmeticError)?;
 
     Ok(claimable.max(0))
 }
 
-/// Cancel a stream
+/// Verify a milestone for a stream, unlocking its associated token amount.
 ///
-/// Allows creator to cancel a stream. Recipient can claim vested amount.
+/// The configured `oracle_address` on the milestone must call this function
+/// (Soroban authorization). Once verified, the milestone's `unlock_amount`
+/// becomes claimable by the stream recipient via `claim_stream`.
+///
+/// Time-based streams (empty `milestones` vec) are unaffected by this function.
 ///
 /// # Arguments
-/// * `env` - The contract environment
-/// * `creator` - Address cancelling the stream (must authorize)
-/// * `stream_id` - ID of the stream to cancel
+/// * `oracle`     - Must match `milestone.oracle_address` and must authorize
+/// * `stream_id`  - ID of the stream containing the milestone
+/// * `milestone_index` - Index into `stream.milestones`
+///
+/// # Errors
+/// * `StreamNotFound`     - Stream does not exist
+/// * `InvalidParameters`  - Index out of range, stream cancelled, or already verified
+/// * `Unauthorized`       - Oracle address does not match milestone config
+pub fn verify_stream_milestone(
+    env: &Env,
+    oracle: &Address,
+    stream_id: u64,
+    milestone_index: u32,
+) -> Result<(), Error> {
+    oracle.require_auth();
+
+    let mut stream = storage::get_stream(env, stream_id).ok_or(Error::StreamNotFound)?;
+
+    if stream.cancelled {
+        return Err(Error::InvalidParameters);
+    }
+
+    if milestone_index >= stream.milestones.len() {
+        return Err(Error::InvalidParameters);
+    }
+
+    let mut milestone = stream.milestones.get(milestone_index).unwrap();
+
+    if milestone.verified {
+        // Idempotent: already verified — treat as success
+        return Ok(());
+    }
+
+    if milestone.oracle_address != *oracle {
+        return Err(Error::Unauthorized);
+    }
+
+    milestone.verified = true;
+    stream.milestones.set(milestone_index, milestone);
+    storage::set_stream(env, stream_id, &stream);
+
+    events::emit_milestone_verified(env, stream_id, oracle);
+
+    Ok(())
+}
+
+/// Cancel a stream
 pub fn cancel_stream(env: &Env, creator: &Address, stream_id: u64) -> Result<(), Error> {
     creator.require_auth();
 
@@ -1527,6 +1592,7 @@ mod dispute_tests {
             cancelled: false,
             paused: false,
             disputed: false,
+            milestones: soroban_sdk::Vec::new(env),
         }
     }
 

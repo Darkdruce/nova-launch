@@ -26,6 +26,8 @@ mod events;
 #[cfg(feature = "legacy-tests")]
 mod liquidity_mining;
 mod milestone_verification;
+#[cfg(test)]
+mod milestone_stream_test;
 #[cfg(feature = "legacy-tests")]
 mod oracle;
 #[cfg(all(test, feature = "legacy-tests"))]
@@ -3091,6 +3093,19 @@ impl TokenFactory {
     /// Resolve a dispute on a stream (admin only), re-enabling settlement.
     pub fn resolve_dispute(env: Env, admin: Address, stream_id: u64) -> Result<(), Error> {
         streaming::resolve_dispute(&env, &admin, stream_id)
+    }
+
+    /// Verify a milestone for a stream, unlocking its associated token amount.
+    ///
+    /// The oracle address configured on the milestone must call this and authorize.
+    /// Once verified, the milestone's `unlock_amount` becomes claimable by the recipient.
+    pub fn verify_stream_milestone(
+        env: Env,
+        oracle: Address,
+        stream_id: u64,
+        milestone_index: u32,
+    ) -> Result<(), Error> {
+        streaming::verify_stream_milestone(&env, &oracle, stream_id, milestone_index)
     }
 
     /// Get governance configuration

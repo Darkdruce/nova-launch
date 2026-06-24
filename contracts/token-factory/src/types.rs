@@ -107,6 +107,24 @@ pub struct MetadataRecord {
     pub updated_by: Address,
 }
 
+/// A single milestone that gates a portion of a token stream.
+///
+/// The `oracle_address` must call `verify_stream_milestone` to unlock the
+/// `unlock_amount`. Once verified, that amount becomes claimable by the
+/// stream recipient on top of any time-vested balance.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Milestone {
+    /// Human-readable description (max 256 chars).
+    pub description: String,
+    /// Address whose `require_auth` approval unlocks this milestone.
+    pub oracle_address: Address,
+    /// Token amount (smallest unit) unlocked when this milestone is verified.
+    pub unlock_amount: i128,
+    /// Whether this milestone has been verified by the oracle.
+    pub verified: bool,
+}
+
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StreamInfo {
@@ -123,6 +141,9 @@ pub struct StreamInfo {
     pub cancelled: bool,
     pub paused: bool,
     pub disputed: bool,
+    /// Optional list of milestones that gate additional unlock amounts.
+    /// An empty Vec means this is a pure time-based stream (no milestones).
+    pub milestones: Vec<Milestone>,
 }
 
 #[contracttype]
