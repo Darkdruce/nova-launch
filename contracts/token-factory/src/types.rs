@@ -861,6 +861,10 @@ pub enum DataKey {
     NextStreamId,
     // Keyset pagination index: ordered (created_ledger, stream_id) entries per owner
     CreatorStreamIndex(Address),
+    // Recurring payment streams (#1765)
+    RecurringStreamCount,
+    RecurringStream(u64),
+    CreatorRecurringStreams(Address),
     GovernanceConfig,
     Vault(u64),
     VaultCount,
@@ -1356,6 +1360,15 @@ impl Error {
     pub const StakingNotActive: Self = Self(134);
     pub const InvalidRewardRate: Self = Self(135);
     pub const InsufficientStake: Self = Self(136);
+    // Payment streaming & vesting errors (#1765)
+    pub const InvalidStreamSchedule: Self = Self(137);
+    pub const StreamMetadataLocked: Self = Self(138);
+    pub const MilestoneNotFound: Self = Self(139);
+    pub const UnauthorizedMilestoneOracle: Self = Self(140);
+    pub const RecurringStreamLimitReached: Self = Self(141);
+    pub const RecurringStreamNotFound: Self = Self(142);
+    pub const RecurringStreamCancelled: Self = Self(143);
+    pub const RecurringPeriodNotElapsed: Self = Self(144);
 
     /// Stable string name for this error code, for off-chain event payloads
     /// (see `emit_operation_failed`). Covers the vault entry-point error
@@ -1383,6 +1396,14 @@ impl Error {
             134 => "StakingNotActive",
             135 => "InvalidRewardRate",
             136 => "InsufficientStake",
+            137 => "InvalidStreamSchedule",
+            138 => "StreamMetadataLocked",
+            139 => "MilestoneNotFound",
+            140 => "UnauthorizedMilestoneOracle",
+            141 => "RecurringStreamLimitReached",
+            142 => "RecurringStreamNotFound",
+            143 => "RecurringStreamCancelled",
+            144 => "RecurringPeriodNotElapsed",
             _ => "UnknownError",
         }
     }

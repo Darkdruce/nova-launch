@@ -47,8 +47,11 @@ mod proposal_type_queue;
 #[cfg(test)]
 mod proposal_execution_queue_fifo_test;
 mod proposal_state_machine;
+mod recurring_stream;
 mod staking;
 mod storage;
+mod stream_types;
+mod streaming;
 mod storage_migration;
 #[cfg(test)]
 mod test_helpers;
@@ -179,9 +182,10 @@ mod vault_balance_invariant_proptest;
 use soroban_sdk::{contract, contractimpl, symbol_short, Address, Bytes, BytesN, Env, String, Symbol, Vec};
 use types::{
     AuctionStatus, BatchScheduleResult, BurnAuction, BuybackCampaign, CampaignStatus,
-    ContractMetadata, DynamicQuorumConfig, Error, FactoryState, PaginationCursor,
-    PreflightItemResult, Reservation, StakeInfo, StakingPool, StreamInfo, StreamPage,
-    StreamParams, TokenCreationParams, TokenInfo, TokenStats, Vault, VaultStatus,
+    ContractMetadata, DynamicQuorumConfig, Error, FactoryState, Milestone, PaginatedStreamsResponse,
+    PaginationCursor, PreflightItemResult, RecurringStream, RecurringStreamParams, Reservation,
+    StakeInfo, StakingPool, StreamCursor, StreamInfo, StreamPage, StreamParams,
+    TokenCreationParams, TokenInfo, TokenStats, Vault, VaultStatus,
 };
 use crate::milestone_verification::MilestoneVerifier;
 
